@@ -1,23 +1,19 @@
 #!/usr/bin/env python3
-"""
-This module provides a Cache class for interacting with Redis.
-It includes functionality to track method call history and replay it.
-"""
+"""doc doc module"""
 
 import redis
 import uuid
 from typing import Union, Callable, Optional
-import functools
+from functools import wraps
 
 
 def count_calls(method: Callable) -> Callable:
-    """
-    Decorator that counts how many times a method is called.
-    """
+    """doc doc class"""
 
-    @functools.wraps(method)
+    @wraps(method)
     def wrapper(self, *args, **kwargs):
-        key = f"{method.__qualname__}"
+        """doc doc class"""
+        key = method.__qualname__
         self._redis.incr(key)
         return method(self, *args, **kwargs)
 
@@ -25,89 +21,67 @@ def count_calls(method: Callable) -> Callable:
 
 
 def call_history(method: Callable) -> Callable:
-    """
-    Decorator that records the history of inputs and outputs for a method.
-    """
+    """doc doc class"""
+    inkey = method.__qualname__ + ":inputs"
+    outkey = method.__qualname__ + ":outputs"
 
-    @functools.wraps(method)
+    @wraps(method)
     def wrapper(self, *args, **kwargs):
-        input_key = f"{method.__qualname__}:inputs"
-        output_key = f"{method.__qualname__}:outputs"
-
-        # Record the input arguments as a string
-        self._redis.rpush(input_key, str(args))
-
-        # Execute the original method and record the output
-        result = method(self, *args, **kwargs)
-        self._redis.rpush(output_key, str(result))
-
-        return result
+        """doc doc class"""
+        self._redis.rpush(inkey, str(args))
+        res = method(self, *args, **kwargs)
+        self._redis.rpush(outkey, str(res))
+        return res
 
     return wrapper
 
 
 def replay(method: Callable) -> None:
-    """
-    Displays the history of calls of a particular function.
+    """doc doc class"""
+    input_key = "{}:inputs".format(method.__qualname__)
+    output_key = "{}:outputs".format(method.__qualname__)
 
-    Args:
-        method: The method whose history will be replayed.
-    """
-    redis_client = method.__self__._redis
-    method_name = method.__qualname__
+    inputs = method.__self__._redis.lrange(input_key, 0, -1)
+    outputs = method.__self__._redis.lrange(output_key, 0, -1)
 
-    # Retrieve the inputs and outputs from Redis
-    inputs = redis_client.lrange(f"{method_name}:inputs", 0, -1)
-    outputs = redis_client.lrange(f"{method_name}:outputs", 0, -1)
-
-    # Print the number of times the method was called
-    print(f"{method_name} was called {len(inputs)} times:")
-
-    # Zip inputs and outputs together and print each pair
+    print("{} was called {} times:".format(method.__qualname__, len(inputs)))
     for inp, out in zip(inputs, outputs):
-        input_decoded = inp.decode('utf-8')
-        output_decoded = out.decode('utf-8')
-        print(f"{method_name}(*{input_decoded}) -> {output_decoded}")
+        print(
+            "{}(*{}) -> {}".format(
+                method.__qualname__, inp.decode("utf-8"), out.decode("utf-8")
+            )
+        )
 
 
 class Cache:
-    """
-    Cache class for storing and retrieving data in Redis with method tracking.
-    """
+    """doc doc class"""
 
     def __init__(self):
+        """doc doc method"""
         self._redis = redis.Redis()
         self._redis.flushdb()
 
     @count_calls
     @call_history
     def store(self, data: Union[str, bytes, int, float]) -> str:
-        """
-        Store data in Redis with a randomly generated key.
-        """
-        key = str(uuid.uuid4())
-        self._redis.set(key, data)
-        return key
+        """doc doc method"""
+        keyx = str(uuid.uuid4())
+        self._redis.set(keyx, data)
+        return keyx
 
     def get(
         self, key: str, fn: Optional[Callable] = None
-    ) -> Optional[Union[str, bytes, int, float]]:
-        """
-        Retrieve data from Redis and optionally apply a conversion function.
-        """
+    ) -> Union[str, bytes, int, float]:
+        """doc doc method"""
         value = self._redis.get(key)
-        if value is not None and fn:
+        if fn:
             value = fn(value)
         return value
 
-    def get_str(self, key: str) -> Optional[str]:
-        """
-        Retrieve a string from Redis.
-        """
-        return self.get(key, fn=lambda x: x.decode("utf-8"))
+    def get_str(self, key: str) -> str:
+        """doc doc method"""
+        return self.get(key, fn=str)
 
-    def get_int(self, key: str) -> Optional[int]:
-        """
-        Retrieve an integer from Redis.
-        """
+    def get_int(self, key: str) -> int:
+        """doc doc method"""
         return self.get(key, fn=int)
