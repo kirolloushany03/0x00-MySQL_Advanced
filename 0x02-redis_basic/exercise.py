@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-This module provides a Cache class for storing and retrieving data in Redis,
-with functionality to count how many times each method is called.
+This module provides a Cache class for interacting with Redis.
+It includes functionality to track method call history and replay it.
 """
 
 import redis
@@ -17,36 +17,70 @@ def count_calls(method: Callable) -> Callable:
 
     @functools.wraps(method)
     def wrapper(self, *args, **kwargs):
-        """
-        Wrapper function that increments the
-        call count and calls the original method.
-        """
-        # Increment the count in Redis using the method's
-        # qualified name as the key
         key = f"{method.__qualname__}"
         self._redis.incr(key)
-
-        # Call the original method and return its result
         return method(self, *args, **kwargs)
 
     return wrapper
 
 
+def call_history(method: Callable) -> Callable:
+    """
+    Decorator that records the history of inputs and outputs for a method.
+    """
+
+    @functools.wraps(method)
+    def wrapper(self, *args, **kwargs):
+        input_key = f"{method.__qualname__}:inputs"
+        output_key = f"{method.__qualname__}:outputs"
+
+        # Record the input arguments as a string
+        self._redis.rpush(input_key, str(args))
+
+        # Execute the original method and record the output
+        result = method(self, *args, **kwargs)
+        self._redis.rpush(output_key, str(result))
+
+        return result
+
+    return wrapper
+
+
+def replay(method: Callable) -> None:
+    """
+    Displays the history of calls of a particular function.
+
+    Args:
+        method: The method whose history will be replayed.
+    """
+    redis_client = method.__self__._redis
+    method_name = method.__qualname__
+
+    # Retrieve the inputs and outputs from Redis
+    inputs = redis_client.lrange(f"{method_name}:inputs", 0, -1)
+    outputs = redis_client.lrange(f"{method_name}:outputs", 0, -1)
+
+    # Print the number of times the method was called
+    print(f"{method_name} was called {len(inputs)} times:")
+
+    # Zip inputs and outputs together and print each pair
+    for inp, out in zip(inputs, outputs):
+        input_decoded = inp.decode('utf-8')
+        output_decoded = out.decode('utf-8')
+        print(f"{method_name}(*{input_decoded}) -> {output_decoded}")
+
+
 class Cache:
     """
-    Cache class for interacting with Redis.
+    Cache class for storing and retrieving data in Redis with method tracking.
     """
 
     def __init__(self):
-        """
-        Initialize the Cache instance.
-
-        Sets up a Redis client instance and flushes the database.
-        """
         self._redis = redis.Redis()
         self._redis.flushdb()
 
     @count_calls
+    @call_history
     def store(self, data: Union[str, bytes, int, float]) -> str:
         """
         Store data in Redis with a randomly generated key.
@@ -59,7 +93,7 @@ class Cache:
         self, key: str, fn: Optional[Callable] = None
     ) -> Optional[Union[str, bytes, int, float]]:
         """
-        Retrieve data from Redis and apply an optional conversion function
+        Retrieve data from Redis and optionally apply a conversion function.
         """
         value = self._redis.get(key)
         if value is not None and fn:
