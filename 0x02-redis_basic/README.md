@@ -1,1 +1,1 @@
-how to use redis
+redis hwo to work with
