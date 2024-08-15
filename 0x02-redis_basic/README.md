@@ -1,2 +1,1 @@
-redis open source
-
+redis is open source
